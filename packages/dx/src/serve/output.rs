@@ -1,7 +1,7 @@
 use crate::Result;
 use crate::{
     BuildId, BuildStage, BuilderUpdate, BundleFormat, TraceContent, TraceMsg, TraceSrc,
-    serve::{ServeUpdate, WebServer},
+    serve::{RebuildTrigger, ServeUpdate, WebServer},
 };
 use anyhow::{Context, anyhow, bail};
 use cargo_metadata::diagnostic::Diagnostic;
@@ -252,7 +252,11 @@ impl Output {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 return Ok(Some(ServeUpdate::Exit { error: None }));
             }
-            KeyCode::Char('r') => return Ok(Some(ServeUpdate::RequestRebuild)),
+            KeyCode::Char('r') => {
+                return Ok(Some(ServeUpdate::RequestRebuild {
+                    trigger: RebuildTrigger::Manual,
+                }));
+            }
             KeyCode::Char('o') => return Ok(Some(ServeUpdate::OpenApp)),
             KeyCode::Char('p') => return Ok(Some(ServeUpdate::CycleHotreloadMode)),
             KeyCode::Char('v') => {

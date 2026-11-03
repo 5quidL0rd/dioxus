@@ -168,7 +168,7 @@ impl RunArgs {
                 ServeUpdate::WsMessage { .. } => {}
                 ServeUpdate::FilesChanged { .. } => {}
                 ServeUpdate::OpenApp => {}
-                ServeUpdate::RequestRebuild => {}
+                ServeUpdate::RequestRebuild { .. } => {}
                 ServeUpdate::CycleHotreloadMode => {}
                 ServeUpdate::OpenDebugger { .. } => {}
                 ServeUpdate::Redraw => {}
