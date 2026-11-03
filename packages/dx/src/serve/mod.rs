@@ -19,6 +19,18 @@ pub(crate) use runner::*;
 pub(crate) use server::*;
 pub(crate) use update::*;
 
+#[cfg(unix)]
+async fn wait_for_sighup(signal: &mut tokio::signal::unix::Signal) -> ServeUpdate {
+    _ = signal.recv().await;
+    tracing::info!("Received SIGHUP, triggering full rebuild");
+    ServeUpdate::RequestRebuild
+}
+
+#[cfg(not(unix))]
+async fn wait_for_sighup(_signal: &mut ()) -> ServeUpdate {
+    std::future::pending::<ServeUpdate>().await
+}
+
 /// For *all* builds, the CLI spins up a dedicated webserver, file watcher, and build infrastructure to serve the project.
 ///
 /// This includes web, desktop, mobile, fullstack, etc.
@@ -74,6 +86,11 @@ pub(crate) async fn serve_all(args: ServeArgs, tracer: &TraceController) -> Resu
         );
     }
 
+    #[cfg(unix)]
+    let mut sighup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
+    #[cfg(not(unix))]
+    let mut sighup = ();
+
     builder.initialize();
 
     loop {
@@ -84,6 +101,7 @@ pub(crate) async fn serve_all(args: ServeArgs, tracer: &TraceController) -> Resu
         // Use biased so the tracer wins in log emits vs all others
         let msg = tokio::select! {
             biased;
+            msg = wait_for_sighup(&mut sighup) => msg,
             msg = tracer.wait() => msg,
             msg = builder.wait() => msg,
             msg = devserver.wait() => msg,
