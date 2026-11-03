@@ -23,7 +23,9 @@ pub(crate) use update::*;
 async fn wait_for_sighup(signal: &mut tokio::signal::unix::Signal) -> ServeUpdate {
     _ = signal.recv().await;
     tracing::info!("Received SIGHUP, triggering full rebuild");
-    ServeUpdate::RequestRebuild
+    ServeUpdate::RequestRebuild {
+        trigger: RebuildTrigger::Signal,
+    }
 }
 
 #[cfg(not(unix))]
@@ -64,12 +66,25 @@ pub(crate) async fn serve_all(args: ServeArgs, tracer: &TraceController) -> Resu
         r#"-----------------------------------------------------------------
                 Serving your app: {binname}! 🚀
                 • Press {GLOW_STYLE}`ctrl+c`{GLOW_STYLE:#} to exit the server
-                • Press {GLOW_STYLE}`r`{GLOW_STYLE:#} to rebuild the app
+                • Press {GLOW_STYLE}`r`{GLOW_STYLE:#} to rebuild the app{sighup_hint}
                 • Press {GLOW_STYLE}`p`{GLOW_STYLE:#} to change hotreload mode
                 • Press {GLOW_STYLE}`v`{GLOW_STYLE:#} to toggle verbose logging
                 • Press {GLOW_STYLE}`/`{GLOW_STYLE:#} for more commands and shortcuts{extra}
-               ----------------------------------------------------------------"#,
+                ----------------------------------------------------------------"#,
         binname = builder.client.build.executable_name(),
+        sighup_hint = {
+            #[cfg(unix)]
+            {
+                format!(
+                    "\n                • Send {GLOW_STYLE}`SIGHUP`{GLOW_STYLE:#} (`kill -HUP {}`) to rebuild the app",
+                    std::process::id()
+                )
+            }
+            #[cfg(not(unix))]
+            {
+                String::new()
+            }
+        },
         extra = if builder.client.build.using_dioxus_explicitly {
             format!(
                 "\n                Learn more at {LINK_STYLE}https://dioxuslabs.com/learn/0.7/getting_started{LINK_STYLE:#}"
@@ -117,12 +132,15 @@ pub(crate) async fn serve_all(args: ServeArgs, tracer: &TraceController) -> Resu
                 builder.handle_file_change(&files, &mut devserver).await;
             }
 
-            ServeUpdate::RequestRebuild => {
+            ServeUpdate::RequestRebuild { trigger } => {
                 // The spacing here is important-ish: we want
                 // `Full rebuild:` to line up with
                 // `Hotreloading:` to keep the alignment during long edit sessions
                 // `Hot-patching:` to keep the alignment during long edit sessions
-                tracing::info!("Full rebuild: triggered manually");
+                match trigger {
+                    RebuildTrigger::Manual => tracing::info!("Full rebuild: triggered manually"),
+                    RebuildTrigger::Signal => tracing::info!("Full rebuild: triggered by SIGHUP"),
+                };
                 builder.full_rebuild().await;
                 devserver.send_reload_start().await;
                 devserver.start_build().await;
@@ -334,5 +352,55 @@ pub(crate) async fn serve_all(args: ServeArgs, tracer: &TraceController) -> Resu
                 }
             }
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::{process::Command, sync::Mutex};
+    use tokio::{
+        signal::unix::{SignalKind, signal},
+        time::{Duration, timeout},
+    };
+
+    static SIGNAL_TEST_MUTEX: Mutex<()> = Mutex::new(());
+
+    #[tokio::test]
+    async fn wait_for_sighup_returns_signal_rebuild_trigger() {
+        let _guard = SIGNAL_TEST_MUTEX.lock().unwrap();
+
+        let mut signal = signal(SignalKind::hangup()).expect("failed to register SIGHUP listener");
+
+        let status = Command::new("kill")
+            .args(["-HUP", &std::process::id().to_string()])
+            .status()
+            .expect("failed to run kill command");
+        assert!(
+            status.success(),
+            "kill command failed with status: {status}"
+        );
+
+        let update = timeout(Duration::from_secs(5), wait_for_sighup(&mut signal))
+            .await
+            .expect("timed out waiting for SIGHUP");
+
+        assert!(matches!(
+            update,
+            ServeUpdate::RequestRebuild {
+                trigger: RebuildTrigger::Signal
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn wait_for_sighup_times_out_without_signal() {
+        let _guard = SIGNAL_TEST_MUTEX.lock().unwrap();
+
+        let mut signal = signal(SignalKind::hangup()).expect("failed to register SIGHUP listener");
+
+        let result = timeout(Duration::from_millis(200), wait_for_sighup(&mut signal)).await;
+
+        assert!(result.is_err(), "wait_for_sighup unexpectedly completed");
     }
 }

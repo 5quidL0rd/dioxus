@@ -6,6 +6,12 @@ use std::path::PathBuf;
 ///
 /// Thanks to libraries like winit for the inspiration
 #[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RebuildTrigger {
+    Manual,
+    Signal,
+}
+
 pub(crate) enum ServeUpdate {
     NewConnection {
         id: BuildId,
@@ -28,8 +34,9 @@ pub(crate) enum ServeUpdate {
     },
 
     OpenApp,
-
-    RequestRebuild,
+    RequestRebuild {
+        trigger: RebuildTrigger,
+    },
 
     CycleHotreloadMode,
 

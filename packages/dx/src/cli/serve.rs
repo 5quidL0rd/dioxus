@@ -17,6 +17,15 @@ use crate::{AddressArguments, Anonymized, BuildArgs, TraceController};
 /// allowing workspaces and removing any "magic" done to support ergonomic fullstack serving with
 /// an plain `dx serve`. These require specifying more arguments like features since they won't be autodetected.
 ///
+/// On Unix, sending `SIGHUP` to a running `dx serve` triggers a full rebuild (same as pressing `r`)
+/// instead of exiting, which is useful for editors and scripts. For example:
+///
+/// ```sh
+/// kill -HUP $(pgrep -x dx)
+/// ```
+///
+/// This is a no-op on Windows.
+///
 /// ```sh
 /// dx serve \
 ///     client --package frontend \
